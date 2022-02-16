@@ -4,7 +4,7 @@ This repository contains the complete R code for the analysis of all-cause morta
 The content of this repository is as follows:
 1. Sample data. 
 
-We used data from the Czech nation-wide registers of all-cause hospitalizations and all-cause deaths, covering the time-period 1994-2017, that, due to its sensitive character, the data cannot be published or shared with external subjects without a permission granted by the Czech Institute of Health Information and Statistics. However, we generated sample data with the structure of the data used in this study.
+We used data from the Czech nation-wide registers of all-cause hospitalizations and all-cause deaths, covering the time-period 1994-2017, that, due to its sensitive character, cannot be published or shared with external subjects without a permission granted by the Czech Institute of Health Information and Statistics. However, we generated sample data with the structure of the data used in this study.
 
 2. Raw outputs.
 3. Analytical dode.
