@@ -8,11 +8,11 @@ The content of this repository is as follows:
 
 Due to the sensitive character of the data, it cannot be published or shared with external subjects without a permission granted by the Czech Institute of Health Information and Statistics. However, we generated sample data with the structure of the data used in this study.
 
-2. Raw outputs.
+<b>2. Raw outputs.</b> 
 
 Contains all the unedited tables and graphs, as generated in R. 
 
-3. Analytical dode.
+<b>3. Analytical dode.</b> 
 
 The analytical code contains:
 1. Data_preparation_R deals with 
