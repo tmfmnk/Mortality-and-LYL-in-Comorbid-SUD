@@ -4,7 +4,7 @@ This repository contains the complete analytical code and raw outputs of the stu
 
 The content of this repository is as follows:
 
-1. Sample data. 
+<b>1. Sample data.</b>  
 
 Due to the sensitive character of the data, it cannot be published or shared with external subjects without a permission granted by the Czech Institute of Health Information and Statistics. However, we generated sample data with the structure of the data used in this study.
 
