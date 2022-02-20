@@ -12,6 +12,6 @@ Contains all the unedited tables and graphs, as generated in R.
 
 <b>3. Analytical dode.</b> 
 
-The analytical code is divided into separate files, covering the data preparation, matching, fitting of survival models, generating the number of outcomes, and computing the life-years lost.
+The analytical code is divided into separate files, covering the data preparation, matching, fitting of survival models, and computing the life-years lost.
 
 
