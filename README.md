@@ -6,7 +6,7 @@ This repository contains the complete analytical code and raw outputs of the stu
 
 Due to the sensitive character of the data, it cannot be published or shared with external subjects without a permission granted by the Czech Institute of Health Information and Statistics. However, we generated sample data with the structure of the data used in this study.
 
-<b>2. Raw outputs.</b> 
+<b>2. Raw output.</b> 
 
 Contains all the unedited tables and graphs, as generated in R. 
 
