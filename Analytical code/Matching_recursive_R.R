@@ -1,0 +1,249 @@
+#Libraries
+
+library(data.table)
+library(tidyverse)
+library(purrr)
+library(lubridate)
+
+#Function for recursive random sampling
+
+recursive_sample <- function(data, n) {
+  
+  groups <- unique(data[["exposed_ID"]])
+  out <- data.frame(exposed_ID = character(), unexposed_ID = character())
+  
+  for (group in groups) {
+    
+    chosen <- data %>%
+      filter(exposed_ID == group,
+             !unexposed_ID %in% out$unexposed_ID) %>%
+      slice_sample(n = min(n, nrow(.))) 
+    
+    out <- rbind(out, chosen)
+    
+  }
+  
+  out
+  
+}
+
+#Import index hospitalization with info on comorbidity
+
+index_hospitalization_and_comorbidity <- fread(file = "/path",
+                                               header = TRUE,
+                                               sep = ",",
+                                               dec = ".",
+                                               fill = TRUE,
+                                               encoding = "Latin-1",
+                                               nThread = 8)
+
+#Import data on mortality
+
+deaths_1994_2013 <- fread(file = "/path")
+deaths_2014 <- fread(file = "/path")
+deaths_2015 <- fread(file = "/path")
+deaths_2016 <- fread(file = "/path")
+deaths_2017 <- fread(file = "/path")
+
+#Unifying the format of mortality data
+
+deaths_1994_2017 <- deaths_1994_2013 %>%
+ transmute(RODCIS2 = RC,
+           DAUMR = dmy(DAUMR),
+           cause_of_death = trimws(DGP),
+           external_cause_of_death = trimws(DGE),
+           age_death = as.numeric(trimws(VEKZE))) %>%
+ bind_rows(deaths_2014 %>%
+            transmute(RODCIS2 = RC,
+                      DAUMR = dmy(DAUMR),
+                      cause_of_death = trimws(DGP),
+                      external_cause_of_death = trimws(DGE),
+                      age_death = VEKZE),
+           deaths_2015 %>%
+            transmute(RODCIS2 = RODCIS2,
+                      DAUMR = ymd(DAUMR),
+                      cause_of_death = trimws(DGP),
+                      external_cause_of_death = trimws(DGE),
+                      age_death = VEKZE),
+           deaths_2016 %>%
+            transmute(RODCIS2 = RCZEMAN2,
+                      DAUMR = ymd(paste0(UMROK, str_pad(UMRMM, 2, pad = "0"), UMRDD)),
+                      cause_of_death = trimws(DGUMR),
+                      external_cause_of_death = trimws(DGUMR2),
+                      age_death = VEK_ZEM),
+           deaths_2017 %>%
+            transmute(RODCIS2 = RCZEMAN2,
+                      DAUMR = ymd(paste0(UMROK, str_pad(UMRMM, 2, pad = "0"), UMRDD)),
+                      cause_of_death = trimws(DGUMR),
+                      external_cause_of_death = trimws(DGUMR2),
+                      age_death = VEK_ZEM))
+
+rm(deaths_1994_2013)
+rm(deaths_2014)
+rm(deaths_2015)
+rm(deaths_2016)
+rm(deaths_2017)
+
+#Matching on sex, age at the first occurrence of subsequent health condition and year of 
+#first occurrence of subsequent health conditon (+- 3 years)
+#Ordering the datasets by the number of matched unexposed individuals per exposed individuals
+#to ensure that individuals with less matches have a larger likelihood of obtaining enough matches in the recursive sampling
+
+all_matched_pairs <- map(names(select(index_hospitalization_and_comorbidity, ends_with("_binary"))),
+                         function(x)
+                           map_dfr(index_hospitalization_and_comorbidity %>%
+                                     filter(group == "exposed") %>%
+                                     group_split(split_ID = frank(RODCIS2, ties.method = "dense") %/% 10000),
+                                   function(y)
+                                     y %>%
+                                     filter(across(all_of(x)) == TRUE & get(sub("_binary", "_historic", x)) == FALSE) %>%
+                                     mutate(!!sub("_binary", "_first_comorbid_hosp_end_date_year", x) := year(get(sub("_binary", "_first_comorbid_hosp_end_date", x))),
+                                            !!sub("_binary", "_first_comorbid_hosp_age_exposed", x) := get(sub("_binary", "_first_comorbid_hosp_age", x))) %>%
+                                     select(exposed_ID = RODCIS2,
+                                            sex,
+                                            all_of(sub("_binary", "_first_comorbid_hosp_end_date_year", x)),
+                                            all_of(sub("_binary", "_first_comorbid_hosp_age_exposed", x))) %>%
+                                     inner_join(index_hospitalization_and_comorbidity %>%
+                                                  filter(group == "unexposed") %>%
+                                                  filter(across(all_of(x)) == TRUE & get(sub("_binary", "_historic", x)) == FALSE) %>%
+                                                  mutate(!!sub("_binary", "_first_comorbid_hosp_end_date_year", x) := year(get(sub("_binary", "_first_comorbid_hosp_end_date", x))),
+                                                         !!sub("_binary", "_first_comorbid_hosp_age_unexposed", x) := get(sub("_binary", "_first_comorbid_hosp_age", x))) %>%
+                                                  select(unexposed_ID = RODCIS2,
+                                                         sex,
+                                                         all_of(sub("_binary", "_first_comorbid_hosp_end_date", x)),
+                                                         all_of(sub("_binary", "_first_comorbid_hosp_end_date_year", x)),
+                                                         all_of(sub("_binary", "_first_comorbid_hosp_age_unexposed", x)))) %>%
+                                     filter(data.table::between(get(sub("_binary", "_first_comorbid_hosp_age_unexposed", x)), 
+                                                                get(sub("_binary", "_first_comorbid_hosp_age_exposed", x)) - 3, 
+                                                                get(sub("_binary", "_first_comorbid_hosp_age_exposed", x)) + 3))) %>%
+                           rename_with(~ sub("_unexposed", "", .), all_of(sub("_binary", "_first_comorbid_hosp_age_unexposed", x))) %>%
+                           select(-ends_with("_first_comorbid_hosp_age_exposed")) %>%
+                           add_count(exposed_ID) %>%
+                           arrange(n, exposed_ID) %>%
+                           select(-n))
+
+#Randomly choosing up to 3 unexposed individuals for each exposed individual
+
+set.seed(123)
+all_matched_sampled_pairs <- map(.x = all_matched_pairs,
+                                 ~ recursive_sample(.x, 3) %>%
+                                   mutate(group = "unexposed"))
+
+#Combine with exposed individuals
+
+all_matched_sampled_pairs_combined <- map2(.x = all_matched_sampled_pairs,
+                                           .y = names(select(index_hospitalization_and_comorbidity, ends_with("_binary"))),
+                                           ~ .x %>%
+                                             rename(RODCIS2 = unexposed_ID) %>%
+                                             bind_rows(index_hospitalization_and_comorbidity %>%
+                                                         filter(RODCIS2 %in% .x$exposed_ID) %>%
+                                                         filter(across(all_of(.y)) == TRUE & get(sub("_binary", "_historic", .y)) == FALSE) %>%
+                                                         transmute(exposed_ID = RODCIS2,
+                                                                   RODCIS2,
+                                                                   sex,
+                                                                   !!sub("_binary", "_first_comorbid_hosp_age", .y) := get(sub("_binary", "_first_comorbid_hosp_age", .y)),
+                                                                   !!sub("_binary", "_first_comorbid_hosp_end_date", .y) := get(sub("_binary", "_first_comorbid_hosp_end_date", .y)),
+                                                                   !!sub("_binary", "_first_comorbid_hosp_end_date_year", .y) := year(get(sub("_binary", "_first_comorbid_hosp_end_date", .y))),
+                                                                   group)))
+            
+#Merge with data on mortality
+#Adding a constant of one day to age at death to avoid t = 0
+
+data_models <- map2(.x = all_matched_sampled_pairs_combined,
+                    .y = names(select(index_hospitalization_and_comorbidity, ends_with("_binary"))),
+                    ~ .x %>%
+                     left_join(deaths_1994_2017,
+                               by = c("RODCIS2" = "RODCIS2")) %>%
+                     mutate(mortality = as.numeric(int_overlaps(interval(get(sub("_binary", "_first_comorbid_hosp_end_date", .y)), ymd("2017-12-31")),
+                                                                interval(DAUMR, DAUMR))),
+                            mortality = replace(mortality, is.na(mortality), 0),
+                            years_diff_mortality_followup = as.duration(get(sub("_binary", "_first_comorbid_hosp_end_date", .y)) %--% ymd("2017-12-31"))/dyears(1),
+                            years_until_death = as.duration(get(sub("_binary", "_first_comorbid_hosp_end_date", .y)) %--% DAUMR)/dyears(1),
+                            years_until_death_or_censoring = ifelse(mortality == 1, years_until_death, years_diff_mortality_followup),
+                            age_death_or_censoring = ifelse(mortality == 0, 
+                                                            get(sub("_binary", "_first_comorbid_hosp_age", .y)) + years_diff_mortality_followup + 1/365,
+                                                            get(sub("_binary", "_first_comorbid_hosp_age", .y)) + years_until_death + 1/365)) %>%
+                     mutate(group = factor(group, levels = c("unexposed", "exposed"))))
+
+#Save data
+
+save(data_models, 
+     file = "/path")
+
+#Table with counts of matched individuals and individuals matching with <3 unexposed individuals
+
+map_dfr(.x = names(select(index_hospitalization_and_comorbidity, ends_with("_binary"))),
+        ~ index_hospitalization_and_comorbidity %>%
+          filter(group == "exposed") %>%
+          filter(across(all_of(.x)) == TRUE & get(sub("_binary", "_historic", .x)) == FALSE) %>%
+          count() %>%
+          mutate(exposure = .x)) %>%
+  bind_cols(map_dfr(.x = all_matched_sampled_pairs, 
+                    ~ .x %>%
+                      summarise(n_matched = n_distinct(exposed_ID)))) %>%
+  transmute(exposure = str_to_sentence(gsub("_", " ", sub("_binary", "", exposure))),
+            exposure = case_when(exposure == "Hiv or aids" ~ "HIV or AIDS",
+                                 exposure == "Parkinsons disease" ~ "Parkinson's disease",
+                                 TRUE ~ exposure),
+            n_prop_matched = paste(formatC(n_matched, big.mark = " "),
+                                   paste0("(",
+                                          formatC(round(n_matched/n * 100, 2), format = "f", digits = 2),
+                                          ")"))) %>%
+  bind_cols(map_dfr(all_matched_sampled_pairs,
+                    ~ .x %>%
+                      count(exposed_ID) %>%
+                      summarise(n_prop_matched_incomplete = paste(formatC(sum(n != 3), big.mark = " "),
+                                                                  paste0("(",
+                                                                         formatC(round(sum(n != 3)/n() * 100, 2), format = "f", digits = 2),
+                                                                         ")"))))) %>%
+  arrange(exposure) %>%
+  write.csv(file = "/path",
+           row.names = FALSE)
+
+#Table with the distribution on matching variables per groups and per exposures
+
+map_dfr(.x = data_models,
+        ~ .x %>%
+         group_by(group) %>%
+         summarise(overall_n = formatC(n(), big.mark = " "),
+                   across(sex, 
+                          ~ paste(formatC(sum(. == 1), big.mark = " "),
+                                  paste0("(",
+                                         formatC(round(sum(. == 1)/n() * 100, 2), format = "f", digits = 2),
+                                         ")"))),
+                   across(ends_with("_first_comorbid_hosp_age"),
+                          ~ paste(formatC(round(mean(.), 2), format = "f", digits = 2),
+                                  paste0("(",
+                                         formatC(round(sd(.), 2), format = "f", digits = 2),
+                                         ")")),
+                          .names = "first_comorbid_hosp_age"),
+                   across(ends_with("_comorbid_hosp_end_date_year"),
+                          ~ paste(formatC(round(median(.), 2), format = "f", digits = 2),
+                                  paste0("(",
+                                         formatC(round(IQR(.), 2), format = "f", digits = 2),
+                                         ")")),
+                          .names = "comorbid_hosp_end_date_year"),
+                   across(ends_with("_first_comorbid_hosp_age"), 
+                          ~ sub("_first_comorbid_hosp_age", "", cur_column()),
+                          .names = "exposure")) %>%
+         ungroup()) %>%
+ pivot_wider(names_from = group,
+             values_from = c(overall_n,
+                             sex, 
+                             ends_with("_hosp_age"),
+                             ends_with("_hosp_end_date_year"))) %>%
+ mutate(exposure = str_to_sentence(gsub("_", " ", exposure)),
+        exposure = case_when(exposure == "Hiv or aids" ~ "HIV or AIDS",
+                             exposure == "Parkinsons disease" ~ "Parkinson's disease",
+                             TRUE ~ exposure)) %>%
+ arrange(exposure) %>%
+ write.csv(file = "/path",
+           row.names = FALSE)
+
+#Median number of individuals per cohorts
+
+map_dfr(.x = data_models, 
+        ~ .x %>%
+         tally()) %>%
+ summarise(median_n = median(n),
+           iqr_n = IQR(n))
