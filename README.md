@@ -12,10 +12,6 @@ Contains all the unedited tables and graphs, as generated in R.
 
 <b>3. Analytical dode.</b> 
 
-The analytical code contains:
-1. Data_preparation_R deals with 
-2. Matching_recursive_R 
-3. Survival_analysis_R
-4. Outcomes_per_groups_R
-5. Life_years_lost_R
+The analytical code is divided into separate files, covering the data preparation, matching, fitting of survival models, generating the number of outcomes, and computing the life-years lost.
+
 
